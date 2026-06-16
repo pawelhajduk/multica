@@ -143,5 +143,9 @@
     "direction_desc": "Descending",
     "section_columns": "Columns",
     "view": "View"
+  },
+  "marker_picker": {
+    "emoji_tab": "Emoji",
+    "icon_tab": "Icon"
   }
 }

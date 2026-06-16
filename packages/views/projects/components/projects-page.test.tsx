@@ -52,13 +52,29 @@ vi.mock("@tanstack/react-query", () => ({
   },
 }));
 
-vi.mock("@multica/core/projects", () => ({
-  projectListOptions: () => ({ queryKey: ["projects"] }),
-  useUpdateProject: () => ({ mutate: mocks.updateProject }),
-  useDeleteProject: () => ({ mutate: mocks.deleteProject }),
-  useProjectViewStore: (selector: (state: unknown) => unknown) =>
-    selector(mocks.projectViewState),
-}));
+vi.mock("@multica/core/projects", async () => {
+  // Pull in the real, side-effect-free marker registries so ProjectIcon (which
+  // parses the marker) renders; only the hooks/queries need stubbing.
+  const marker = await vi.importActual<typeof import("@multica/core/projects/marker")>(
+    "@multica/core/projects/marker",
+  );
+  const iconNames = await vi.importActual<typeof import("@multica/core/projects/icon-names")>(
+    "@multica/core/projects/icon-names",
+  );
+  const iconColors = await vi.importActual<typeof import("@multica/core/projects/icon-colors")>(
+    "@multica/core/projects/icon-colors",
+  );
+  return {
+    ...marker,
+    ...iconNames,
+    ...iconColors,
+    projectListOptions: () => ({ queryKey: ["projects"] }),
+    useUpdateProject: () => ({ mutate: mocks.updateProject }),
+    useDeleteProject: () => ({ mutate: mocks.deleteProject }),
+    useProjectViewStore: (selector: (state: unknown) => unknown) =>
+      selector(mocks.projectViewState),
+  };
+});
 
 vi.mock("@multica/core/pins", () => ({
   pinListOptions: () => ({ queryKey: ["pins"] }),

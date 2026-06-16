@@ -9,6 +9,7 @@ import {
   PROJECT_ICONS,
   PROJECT_ICON_COLORS,
 } from "@multica/core/projects";
+import { useT } from "../../i18n";
 
 export interface ProjectMarkerPickerProps {
   /** The current stored marker (emoji, encoded icon, or null). */
@@ -36,6 +37,7 @@ export interface ProjectMarkerPickerProps {
  * dismissing out from under them.
  */
 export function ProjectMarkerPicker({ icon, onSelectEmoji, onSelectIcon }: ProjectMarkerPickerProps) {
+  const { t } = useT("projects");
   const marker = parseProjectMarker(icon);
   const defaultTab = marker?.type === "icon" ? "icon" : "emoji";
   const currentIconName = marker?.type === "icon" ? marker.iconName : undefined;
@@ -44,8 +46,8 @@ export function ProjectMarkerPicker({ icon, onSelectEmoji, onSelectIcon }: Proje
   return (
     <Tabs defaultValue={defaultTab} className="w-[352px]">
       <TabsList className="m-2 mb-0 w-[calc(100%-1rem)]">
-        <TabsTrigger value="emoji">Emoji</TabsTrigger>
-        <TabsTrigger value="icon">Icon</TabsTrigger>
+        <TabsTrigger value="emoji">{t(($) => $.marker_picker.emoji_tab)}</TabsTrigger>
+        <TabsTrigger value="icon">{t(($) => $.marker_picker.icon_tab)}</TabsTrigger>
       </TabsList>
 
       <TabsContent value="emoji">

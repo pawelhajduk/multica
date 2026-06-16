@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { screen, fireEvent } from "@testing-library/react";
+import { renderWithI18n } from "../../test/i18n";
 import { ProjectMarkerPicker } from "./project-marker-picker";
 
 // The real emoji-mart picker instantiates DOM in an effect; stub it down to a
@@ -15,7 +16,7 @@ vi.mock("@multica/ui/components/common/emoji-picker", () => ({
 function setup(icon: string | null | undefined) {
   const onSelectEmoji = vi.fn();
   const onSelectIcon = vi.fn();
-  render(
+  renderWithI18n(
     <ProjectMarkerPicker
       icon={icon}
       onSelectEmoji={onSelectEmoji}
