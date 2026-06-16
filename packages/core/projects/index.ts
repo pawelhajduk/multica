@@ -12,6 +12,9 @@ export {
   type ProjectColumnKey,
   type ProjectListFilters,
 } from "./stores/view-store";
+export { parseProjectMarker, encodeIconMarker, type ProjectMarker } from "./marker";
+export { PROJECT_ICONS, PROJECT_ICON_NAMES, isValidIconName, type ProjectIconEntry } from "./icon-names";
+export { PROJECT_ICON_COLORS, isValidIconColor } from "./icon-colors";
 export {
   projectResourceKeys,
   projectResourcesOptions,
