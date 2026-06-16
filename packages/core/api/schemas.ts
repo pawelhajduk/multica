@@ -844,6 +844,10 @@ export const UserSchema = z.object({
   language: z.string().nullable().default(null),
   profile_description: z.string().default(""),
   timezone: z.string().nullable().default(null),
+  // Defaults to false so older backends that don't yet return the column
+  // (or a parse fallback) keep the raw log view, never accidentally opting
+  // a user into the visual view.
+  visual_execution_history: z.boolean().default(false),
   created_at: z.string().default(""),
   updated_at: z.string().default(""),
 }).loose();
@@ -859,6 +863,7 @@ export const EMPTY_USER: User = {
   language: null,
   profile_description: "",
   timezone: null,
+  visual_execution_history: false,
   created_at: "",
   updated_at: "",
 };
