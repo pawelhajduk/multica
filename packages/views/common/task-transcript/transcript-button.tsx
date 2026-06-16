@@ -16,10 +16,12 @@ import {
   mergeTaskMessagesBySeq,
   taskMessagesOptions,
 } from "@multica/core/chat/queries";
+import { useAuthStore } from "@multica/core/auth";
 import type { AgentTask } from "@multica/core/types/agent";
 import type { TaskMessagePayload } from "@multica/core/types/events";
 import { AgentTranscriptDialog } from "./agent-transcript-dialog";
 import { buildTimeline, type TimelineItem } from "./build-timeline";
+import { VisualRunHistory } from "../../chat/components/visual-run-history";
 
 interface TranscriptButtonProps {
   task: AgentTask;
@@ -41,6 +43,17 @@ interface TranscriptButtonProps {
    * surface autopilot webhook payloads inline with the run history.
    */
   headerSlot?: React.ReactNode;
+  /**
+   * Delegate opening to a parent that owns the dialog mount. When provided,
+   * this button becomes a pure trigger — it calls `onOpen(task.id)` and renders
+   * NO dialog of its own. Required by surfaces where the row unmounts while the
+   * dialog should stay open: the issue execution log re-buckets a task
+   * active→past the instant it completes, which would unmount a row-owned live
+   * dialog mid-watch. The section hoists the mount and passes `onOpen` so the
+   * live view survives the running→completed handoff. Omit on stable surfaces
+   * (autopilot detail, agent activity) to keep the self-contained behavior.
+   */
+  onOpen?: (taskId: string) => void;
 }
 
 /**
@@ -65,6 +78,7 @@ export function TranscriptButton({
   className,
   title = "View transcript",
   headerSlot,
+  onOpen,
 }: TranscriptButtonProps) {
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -85,13 +99,56 @@ export function TranscriptButton({
     if (!open) setLiveSession(false);
   }, [open]);
 
-  // Live mode renders from the cache; lazy/provided modes from local state.
+  // Per-user opt-in (Settings → Preferences). When on, the button opens the
+  // chat-style read-only run view; when off (default) it opens the raw event
+  // log. The visual view offers a "View raw log" escape hatch that swaps to
+  // the raw dialog without re-fetching. `forceRaw` lets that hatch override
+  // the preference for the current open session only.
+  const visualEnabled = useAuthStore(
+    (s) => s.user?.visual_execution_history ?? false,
+  );
+  const [forceRaw, setForceRaw] = useState(false);
+  const showVisual = visualEnabled && !forceRaw;
+
+  // Visual mode renders from its own fetch; live mode renders from the shared
+  // cache; lazy/provided modes from local state.
   const items = providedItems ?? loadedItems ?? [];
+
+  // Fetch + cache the raw timeline (no-op if already loaded or provided).
+  // Returns a promise so the escape hatch can await it before swapping.
+  const ensureItems = useCallback(async () => {
+    if (providedItems !== undefined || loadedItems !== null) return;
+    setLoading(true);
+    try {
+      const msgs = await api.listTaskMessages(task.id);
+      setLoadedItems(buildTimeline(msgs));
+    } catch (err) {
+      console.error(err);
+      setLoadedItems([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [providedItems, loadedItems, task.id]);
 
   const handleClick = useCallback(
     (e: React.MouseEvent) => {
       e.preventDefault();
       e.stopPropagation();
+      // Delegated mode: hand off to the parent-owned dialog host and render
+      // nothing locally. The host owns gating + the live-survival hoist.
+      if (onOpen) {
+        onOpen(task.id);
+        return;
+      }
+      setForceRaw(false);
+      // The visual view fetches the timeline itself (via taskMessagesOptions),
+      // so it can open immediately and handles live/terminal tasks on its own.
+      if (visualEnabled) {
+        setOpen(true);
+        return;
+      }
+      // Raw path on a running task: render from the shared cache so the dialog
+      // keeps growing live.
       if (liveCacheMode) {
         setLiveSession(true);
         setOpen(true);
@@ -101,25 +158,33 @@ export function TranscriptButton({
         setOpen(true);
         return;
       }
-      setLoading(true);
-      api
-        .listTaskMessages(task.id)
-        .then((msgs) => {
-          setLoadedItems(buildTimeline(msgs));
-          setOpen(true);
-        })
-        .catch((err) => {
-          console.error(err);
-          setLoadedItems([]);
-          setOpen(true);
-        })
-        .finally(() => setLoading(false));
+      void ensureItems().then(() => setOpen(true));
     },
-    [liveCacheMode, providedItems, loadedItems, task.id],
+    [
+      onOpen,
+      task.id,
+      visualEnabled,
+      liveCacheMode,
+      providedItems,
+      loadedItems,
+      ensureItems,
+    ],
   );
 
+  // Escape hatch: from the visual view, drop to the raw event log. Load the
+  // timeline first (the visual path never fetched it) so the raw dialog has
+  // data on first paint.
+  const handleViewRawLog = useCallback(() => {
+    void ensureItems().then(() => setForceRaw(true));
+  }, [ensureItems]);
+
   useEffect(() => {
-    if (!open) return;
+    if (!open) {
+      // Reset the per-session escape-hatch override so the next open honours
+      // the current preference again.
+      setForceRaw(false);
+      return;
+    }
 
     const handleGlobalNavigate = () => {
       setOpen(false);
@@ -153,7 +218,19 @@ export function TranscriptButton({
         <TooltipContent>{title}</TooltipContent>
       </Tooltip>
 
-      {open &&
+      {!onOpen && open && showVisual && (
+        <VisualRunHistory
+          open={open}
+          onOpenChange={setOpen}
+          task={task}
+          agentName={agentName}
+          onViewRawLog={handleViewRawLog}
+        />
+      )}
+
+      {!onOpen &&
+        open &&
+        !showVisual &&
         (liveSession ? (
           <LiveTranscriptDialog
             task={task}

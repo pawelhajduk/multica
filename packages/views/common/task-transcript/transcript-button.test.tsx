@@ -25,13 +25,27 @@ import type { TimelineItem } from "./build-timeline";
 
 vi.mock("@multica/core/api", () => ({
   api: {
-    listTaskMessages: vi.fn(),
+    listTaskMessages: vi.fn().mockResolvedValue([]),
   },
 }));
 
 // Render the timeline items so tests can assert the dialog grows in place.
 // `tool_use` / `tool_result` entries don't coalesce, so each message stays a
 // distinct row — unlike adjacent text/thinking, which buildTimeline merges.
+
+// Per-user preference gate. Default: visual view off (raw dialog). Individual
+// tests flip `visualPref` before rendering.
+let visualPref = false;
+vi.mock("@multica/core/auth", () => {
+  const state = () => ({ user: { visual_execution_history: visualPref } });
+  const useAuthStore = Object.assign(
+    (sel?: (s: ReturnType<typeof state>) => unknown) =>
+      sel ? sel(state()) : state(),
+    { getState: state },
+  );
+  return { useAuthStore };
+});
+
 vi.mock("./agent-transcript-dialog", () => ({
   AgentTranscriptDialog: ({
     open,
@@ -43,7 +57,7 @@ vi.mock("./agent-transcript-dialog", () => ({
     items: TimelineItem[];
   }) =>
     open ? (
-      <div role="dialog" data-testid="transcript-dialog">
+      <div role="dialog" data-testid="raw-dialog">
         <button type="button" onClick={() => onOpenChange(false)}>
           Close
         </button>
@@ -54,7 +68,32 @@ vi.mock("./agent-transcript-dialog", () => ({
     ) : null,
 }));
 
+vi.mock("../../chat/components/visual-run-history", () => ({
+  VisualRunHistory: ({
+    open,
+    onViewRawLog,
+  }: {
+    open: boolean;
+    onViewRawLog?: () => void;
+  }) =>
+    open ? (
+      <div role="dialog" data-testid="visual-dialog">
+        <button type="button" onClick={() => onViewRawLog?.()}>
+          View raw log
+        </button>
+      </div>
+    ) : null,
+}));
+
+afterEach(() => {
+  visualPref = false;
+});
+
 const LIVE_TASK_ID = "4a2e8d1c-7f9b-4e2a-9c1d-123456789abc";
+
+// Shared timeline fixture for the preference-gate tests, which only assert
+// which dialog opens — not its contents.
+const items: TimelineItem[] = [{ seq: 1, type: "text", content: "hello" }];
 
 const baseTask: AgentTask = {
   id: LIVE_TASK_ID,
@@ -103,7 +142,6 @@ afterEach(() => {
 
 describe("TranscriptButton", () => {
   it("closes the transcript dialog when desktop navigation starts", async () => {
-    const items: TimelineItem[] = [{ seq: 1, type: "text", content: "hello" }];
     const qc = newClient();
     renderWith(
       qc,
@@ -231,7 +269,7 @@ describe("TranscriptButton", () => {
 
     // Dialog stays mounted (latched), and the terminal transition triggers a
     // second authoritative backfill rather than blanking to local state.
-    expect(screen.getByTestId("transcript-dialog")).toBeInTheDocument();
+    expect(screen.getByTestId("raw-dialog")).toBeInTheDocument();
     await waitFor(() => expect(listTaskMessages).toHaveBeenCalledTimes(2));
 
     // The final tail message still flows in through the shared cache.
@@ -244,5 +282,40 @@ describe("TranscriptButton", () => {
     await waitFor(() =>
       expect(screen.getAllByTestId("event")).toHaveLength(2),
     );
+  });
+
+  it("opens the raw event-log dialog when the visual preference is off", () => {
+    visualPref = false;
+    render(<TranscriptButton task={baseTask} agentName="Codex" items={items} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "View transcript" }));
+
+    expect(screen.getByTestId("raw-dialog")).toBeInTheDocument();
+    expect(screen.queryByTestId("visual-dialog")).not.toBeInTheDocument();
+  });
+
+  it("opens the visual run view when the visual preference is on", () => {
+    visualPref = true;
+    render(<TranscriptButton task={baseTask} agentName="Codex" items={items} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "View transcript" }));
+
+    expect(screen.getByTestId("visual-dialog")).toBeInTheDocument();
+    expect(screen.queryByTestId("raw-dialog")).not.toBeInTheDocument();
+  });
+
+  it("swaps from the visual view to the raw log via the escape hatch", async () => {
+    visualPref = true;
+    render(<TranscriptButton task={baseTask} agentName="Codex" items={items} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "View transcript" }));
+    expect(screen.getByTestId("visual-dialog")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "View raw log" }));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("raw-dialog")).toBeInTheDocument();
+    });
+    expect(screen.queryByTestId("visual-dialog")).not.toBeInTheDocument();
   });
 });
