@@ -16,6 +16,7 @@
  */
 import { View } from "react-native";
 import { Text } from "@/components/ui/text";
+import { projectMarkerGlyph } from "@/lib/project-marker";
 
 export type ProjectIconSize = "sm" | "md" | "lg";
 
@@ -42,7 +43,7 @@ export function ProjectIcon({ icon, size = "sm" }: Props) {
       }}
     >
       <Text style={{ fontSize: font, lineHeight: Math.round(font * 1.2) }}>
-        {icon || "📁"}
+        {projectMarkerGlyph(icon)}
       </Text>
     </View>
   );
