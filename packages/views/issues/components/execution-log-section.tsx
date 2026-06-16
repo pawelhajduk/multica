@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Ban, CheckCircle2, ChevronRight, Loader2, RotateCcw, Square, XCircle } from "lucide-react";
 import { toast } from "sonner";
@@ -15,7 +15,7 @@ import {
 } from "@multica/ui/components/ui/tooltip";
 import { ActorAvatar } from "../../common/actor-avatar";
 import { formatDuration } from "../../agents/components/agent-activity-hover-content";
-import { TranscriptButton } from "../../common/task-transcript";
+import { TranscriptButton, RunHistoryDialogHost } from "../../common/task-transcript";
 import { failureReasonLabel } from "../../agents/components/tabs/task-failure";
 import { useT } from "../../i18n";
 import { TerminateTaskConfirmDialog } from "./terminate-task-confirm-dialog";
@@ -61,6 +61,11 @@ export function ExecutionLogSection({ issueId }: ExecutionLogSectionProps) {
   const { t } = useT("issues");
   const [open, setOpen] = useState(true);
   const [showPast, setShowPast] = useState(false);
+  // Section-level run-history dialog. Hoisted out of the rows so a LIVE run's
+  // view survives the active→past re-bucket (and the collapse of `showPast`)
+  // that unmounts its row the instant it completes. We only track the id; the
+  // dialog always reads the freshest task object from `tasks` below.
+  const [openTaskId, setOpenTaskId] = useState<string | null>(null);
 
   // Cache key registered in `issueKeys.tasks` (packages/core/issues/queries.ts)
   // so the global useRealtimeSync `task:` prefix path invalidates it via
@@ -108,6 +113,29 @@ export function ExecutionLogSection({ issueId }: ExecutionLogSectionProps) {
     });
   }, [tasks]);
 
+  // Always resolve the open task from the live list (not a snapshot), so the
+  // dialog re-renders running→completed in place. Stays non-null across the
+  // active→past bucket change because the lookup spans both buckets.
+  //
+  // `listTasksByIssue` is unbounded (no LIMIT — see ListTasksByIssue in
+  // agent.sql), so the open task normally never leaves `tasks`. We still hold
+  // the last-known object as a fallback: if the lookup ever transiently misses
+  // (a future LIMIT/pagination, a refetch gap, the task being deleted), the
+  // dialog keeps showing the last good state instead of slamming shut
+  // mid-read. It only closes when the user clears `openTaskId`.
+  const lastKnownTask = useRef<AgentTask | null>(null);
+  const liveTask = openTaskId
+    ? (tasks.find((task) => task.id === openTaskId) ?? null)
+    : null;
+  if (openTaskId === null) {
+    lastKnownTask.current = null;
+  } else if (liveTask) {
+    lastKnownTask.current = liveTask;
+  }
+  const openTask =
+    liveTask ??
+    (lastKnownTask.current?.id === openTaskId ? lastKnownTask.current : null);
+
   if (activeTasks.length === 0 && pastTasks.length === 0) return null;
 
   return (
@@ -135,7 +163,12 @@ export function ExecutionLogSection({ issueId }: ExecutionLogSectionProps) {
       {open && (
         <div className="space-y-0.5 pl-2">
           {activeTasks.map((task) => (
-            <ActiveTaskRow key={task.id} task={task} issueId={issueId} />
+            <ActiveTaskRow
+              key={task.id}
+              task={task}
+              issueId={issueId}
+              onOpenRun={setOpenTaskId}
+            />
           ))}
 
           {pastTasks.length > 0 && (
@@ -160,7 +193,12 @@ export function ExecutionLogSection({ issueId }: ExecutionLogSectionProps) {
               {showPast && (
                 <div className="mt-0.5 space-y-0.5">
                   {pastTasks.map((task) => (
-                    <PastRow key={task.id} task={task} issueId={issueId} />
+                    <PastRow
+                      key={task.id}
+                      task={task}
+                      issueId={issueId}
+                      onOpenRun={setOpenTaskId}
+                    />
                   ))}
                 </div>
               )}
@@ -168,6 +206,14 @@ export function ExecutionLogSection({ issueId }: ExecutionLogSectionProps) {
           )}
         </div>
       )}
+
+      {/* Section-level dialog mount — survives the row's active→past unmount so
+          a live run keeps streaming and settles into the static transcript in
+          place at completion. */}
+      <RunHistoryDialogHost
+        task={openTask}
+        onClose={() => setOpenTaskId(null)}
+      />
     </div>
   );
 }
@@ -248,9 +294,11 @@ function useStatusLabel(status: AgentTask["status"]): string {
 export function ActiveTaskRow({
   task,
   issueId,
+  onOpenRun,
 }: {
   task: AgentTask;
   issueId: string;
+  onOpenRun?: (taskId: string) => void;
 }) {
   const { t } = useT("issues");
   const [cancelling, setCancelling] = useState(false);
@@ -315,6 +363,7 @@ export function ActiveTaskRow({
             task={task}
             agentName=""
             isLive={task.status === "running"}
+            onOpen={onOpenRun}
             title={t(($) => $.execution_log.transcript_tooltip)}
           />
         )}
@@ -355,7 +404,15 @@ export function ActiveTaskRow({
 
 // ─── Past row ──────────────────────────────────────────────────────────────
 
-function PastRow({ task, issueId }: { task: AgentTask; issueId: string }) {
+function PastRow({
+  task,
+  issueId,
+  onOpenRun,
+}: {
+  task: AgentTask;
+  issueId: string;
+  onOpenRun?: (taskId: string) => void;
+}) {
   const { t } = useT("issues");
   const timeAgo = useTimeAgo();
   const [retrying, setRetrying] = useState(false);
@@ -398,7 +455,12 @@ function PastRow({ task, issueId }: { task: AgentTask; issueId: string }) {
         <span className="text-muted-foreground">{time}</span>
       </RowStatus>
       <RowActions>
-        <TranscriptButton task={task} agentName="" title={t(($) => $.execution_log.transcript_tooltip)} />
+        <TranscriptButton
+          task={task}
+          agentName=""
+          onOpen={onOpenRun}
+          title={t(($) => $.execution_log.transcript_tooltip)}
+        />
         {canRetry && (
           <Tooltip>
             <TooltipTrigger
