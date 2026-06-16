@@ -70,7 +70,8 @@ import {
   TooltipTrigger,
   TooltipContent,
 } from "@multica/ui/components/ui/tooltip";
-import { EmojiPicker } from "@multica/ui/components/common/emoji-picker";
+import { ProjectMarkerPicker } from "./project-marker-picker";
+import { ProjectIcon } from "./project-icon";
 import { BreadcrumbHeader } from "../../layout/breadcrumb-header";
 import {
   AlertDialog,
@@ -526,19 +527,22 @@ export function ProjectDetail({ projectId }: { projectId: string }) {
             render={
               <button
                 type="button"
-                className="text-2xl cursor-pointer rounded-lg p-1 -ml-1 hover:bg-accent/60 transition-colors"
+                className="cursor-pointer rounded-lg p-1 -ml-1 hover:bg-accent/60 transition-colors"
                 title={t(($) => $.detail.icon_tooltip)}
+                aria-label={t(($) => $.detail.icon_tooltip)}
               >
-                {project.icon || "📁"}
+                <ProjectIcon project={{ icon: project.icon }} size="lg" />
               </button>
             }
           />
-          <PopoverContent align="start" className="w-auto p-0">
-            <EmojiPicker
-              onSelect={(emoji) => {
+          <PopoverContent align="start" className="w-[352px] p-0">
+            <ProjectMarkerPicker
+              icon={project.icon}
+              onSelectEmoji={(emoji) => {
                 handleUpdateField({ icon: emoji });
                 setIconPickerOpen(false);
               }}
+              onSelectIcon={(marker) => handleUpdateField({ icon: marker })}
             />
           </PopoverContent>
         </Popover>

@@ -17,22 +17,38 @@ vi.mock("@multica/core/projects/mutations", () => ({
   useCreateProject: () => ({ mutateAsync: vi.fn() }),
 }));
 
-vi.mock("@multica/core/projects", () => ({
-  useProjectDraftStore: (selector: (state: unknown) => unknown) =>
-    selector({
-      draft: {
-        title: "",
-        description: "",
-        status: "planned",
-        priority: "medium",
-        leadType: undefined,
-        leadId: undefined,
-        icon: undefined,
-      },
-      setDraft: vi.fn(),
-      clearDraft: vi.fn(),
-    }),
-}));
+vi.mock("@multica/core/projects", async () => {
+  // The marker registries are pure data with no side effects, so pull the real
+  // implementations in; only the draft store needs stubbing.
+  const marker = await vi.importActual<typeof import("@multica/core/projects/marker")>(
+    "@multica/core/projects/marker",
+  );
+  const iconNames = await vi.importActual<typeof import("@multica/core/projects/icon-names")>(
+    "@multica/core/projects/icon-names",
+  );
+  const iconColors = await vi.importActual<typeof import("@multica/core/projects/icon-colors")>(
+    "@multica/core/projects/icon-colors",
+  );
+  return {
+    ...marker,
+    ...iconNames,
+    ...iconColors,
+    useProjectDraftStore: (selector: (state: unknown) => unknown) =>
+      selector({
+        draft: {
+          title: "",
+          description: "",
+          status: "planned",
+          priority: "medium",
+          leadType: undefined,
+          leadId: undefined,
+          icon: undefined,
+        },
+        setDraft: vi.fn(),
+        clearDraft: vi.fn(),
+      }),
+  };
+});
 
 vi.mock("@multica/core/hooks", () => ({
   useWorkspaceId: () => "workspace-1",

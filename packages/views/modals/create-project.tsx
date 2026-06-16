@@ -46,7 +46,8 @@ import {
 import { Popover, PopoverTrigger, PopoverContent } from "@multica/ui/components/ui/popover";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@multica/ui/components/ui/tooltip";
 import { Button } from "@multica/ui/components/ui/button";
-import { EmojiPicker } from "@multica/ui/components/common/emoji-picker";
+import { ProjectMarkerPicker } from "../projects/components/project-marker-picker";
+import { ProjectIcon } from "../projects/components/project-icon";
 import { ContentEditor, type ContentEditorRef, TitleEditor } from "../editor";
 import { PriorityIcon } from "../issues/components/priority-icon";
 import { ActorAvatar } from "../common/actor-avatar";
@@ -360,19 +361,22 @@ export function CreateProjectModal({ onClose }: { onClose: () => void }) {
               render={
                 <button
                   type="button"
-                  className="text-2xl cursor-pointer rounded-lg p-1 -ml-1 hover:bg-accent/60 transition-colors"
+                  className="cursor-pointer rounded-lg p-1 -ml-1 hover:bg-accent/60 transition-colors"
                   title={t(($) => $.create_project.icon_tooltip)}
+                  aria-label={t(($) => $.create_project.icon_tooltip)}
                 >
-                  {icon || "📁"}
+                  <ProjectIcon project={{ icon: icon ?? null }} size="lg" />
                 </button>
               }
             />
-            <PopoverContent align="start" className="w-auto p-0">
-              <EmojiPicker
-                onSelect={(emoji) => {
+            <PopoverContent align="start" className="w-[352px] p-0">
+              <ProjectMarkerPicker
+                icon={icon}
+                onSelectEmoji={(emoji) => {
                   updateIcon(emoji);
                   setIconPickerOpen(false);
                 }}
+                onSelectIcon={(marker) => updateIcon(marker)}
               />
             </PopoverContent>
           </Popover>

@@ -143,5 +143,9 @@
     "direction_desc": "降序",
     "section_columns": "列",
     "view": "视图"
+  },
+  "marker_picker": {
+    "emoji_tab": "表情符号",
+    "icon_tab": "图标"
   }
 }

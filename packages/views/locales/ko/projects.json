@@ -143,5 +143,9 @@
     "direction_desc": "내림차순",
     "section_columns": "열",
     "view": "보기"
+  },
+  "marker_picker": {
+    "emoji_tab": "이모지",
+    "icon_tab": "아이콘"
   }
 }
