@@ -549,9 +549,7 @@ function TaskStatusIcon({ status }: { status: AgentTask["status"] }) {
 }
 
 // Action slot — visible by default for touch devices. On hover-capable
-// surfaces, it replaces the status column in place on row hover. No
-// absolute/gradient needed: the status is removed (not covered), so nothing
-// shows through underneath.
+// surfaces, it replaces the status column in place on row hover.
 function RowActions({ children }: { children: React.ReactNode }) {
   return (
     <div className="flex h-7 items-center gap-0.5 [@media(hover:hover)]:hidden [@media(hover:hover)]:group-hover/execution-log-row:flex">
