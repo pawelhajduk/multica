@@ -547,6 +547,17 @@ WHERE issue_id = $1 AND status IN ('queued', 'dispatched');
 SELECT count(*) > 0 AS has_pending FROM agent_task_queue
 WHERE issue_id = $1 AND agent_id = $2 AND status IN ('queued', 'dispatched');
 
+-- name: HasRunningTaskForIssueAndAgent :one
+-- Returns true if a specific agent already has a task actively in flight
+-- (running, or daemon-parked on a busy local_directory path lock) for the
+-- given issue. The @mention dedup (HasPendingTaskForIssueAndAgent) only
+-- matches queued/dispatched, so a re-mention WHILE the agent is running slips
+-- through and creates a second task — this query lets the enqueue path observe
+-- that "running-window duplicate" for the MUL-4 success metric. Instrumentation
+-- only; it does not change enqueue behavior.
+SELECT count(*) > 0 AS has_running FROM agent_task_queue
+WHERE issue_id = $1 AND agent_id = $2 AND status IN ('running', 'waiting_local_directory');
+
 -- name: HasPendingTaskForIssueAndAgentExcludingTriggerComment :one
 -- Same as HasPendingTaskForIssueAndAgent, but ignores tasks triggered by the
 -- current comment being edited. Edit preview needs this because save cancels

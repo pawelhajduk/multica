@@ -31,6 +31,7 @@ const (
 	labelAction       = "action"
 	labelResult       = "result"
 	labelOp           = "op"
+	labelSignal       = "signal"
 )
 
 var businessMetricLabels = map[string][]string{
@@ -50,6 +51,7 @@ var businessMetricLabels = map[string][]string{
 	"multica_llm_request_total":             {labelProvider, labelModel, labelRuntimeMode},
 	"multica_task_queued_expired_total":     {labelSource, labelRuntimeMode},
 	"multica_task_lease_expired_total":      {labelSource},
+	"multica_agent_duplicate_trigger_total": {labelSignal},
 
 	// PR3 funnel / community / commercial.
 	"multica_signup_total":                             {labelSignupSource},
