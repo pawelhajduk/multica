@@ -42,7 +42,7 @@ import { Command, CommandInput, CommandList, CommandEmpty, CommandGroup, Command
 import { AvatarGroup, AvatarGroupCount } from "@multica/ui/components/ui/avatar";
 import { ActorAvatar } from "../../common/actor-avatar";
 import { PropRow } from "../../common/prop-row";
-import type { Attachment, Issue, IssueStatus, IssuePriority, TimelineEntry, UpdateIssueRequest } from "@multica/core/types";
+import type { AgentTask, Attachment, Issue, IssueStatus, IssuePriority, TimelineEntry, UpdateIssueRequest } from "@multica/core/types";
 import { contentReferencesAttachment } from "@multica/core/types";
 import { STATUS_CONFIG, PRIORITY_CONFIG } from "@multica/core/issues/config";
 import { formatDateOnly } from "@multica/core/issues/date";
@@ -53,6 +53,9 @@ import { IssueActionsDropdown, useIssueActions } from "../actions";
 import { ProjectPicker } from "../../projects/components/project-picker";
 import { LocalDirectoryHint } from "../../projects/components/local-directory-hint";
 import { CommentCard } from "./comment-card";
+import { PendingExecutionCard } from "./pending-execution-card";
+import { PendingExecutionAnnouncer } from "./pending-execution-announcer";
+import { RunHistoryDialogHost } from "../../common/task-transcript";
 import { CommentInput } from "./comment-input";
 import { ResolvedThreadBar } from "./resolved-thread-bar";
 import { collectThreadReplies, deriveThreadResolution } from "./thread-utils";
@@ -338,7 +341,8 @@ function shallowEqualEntries(a: TimelineEntry[], b: TimelineEntry[]): boolean {
 type TimelineItem =
   | { kind: "comment"; id: string; entry: TimelineEntry }
   | { kind: "resolved-bar"; id: string; entry: TimelineEntry }
-  | { kind: "activity-group"; id: string; entries: TimelineEntry[] };
+  | { kind: "activity-group"; id: string; entries: TimelineEntry[] }
+  | { kind: "pending-execution"; id: string; task: AgentTask };
 
 type RawTimelineGroup = {
   type: "comment" | "activities";
@@ -368,6 +372,67 @@ function flattenGroups(
       });
     }
   }
+  return out;
+}
+
+// Merge the inline pending-execution entries into the flattened item list, in
+// thread order. Each active run is anchored to the ROOT of its
+// `trigger_comment_id` (walking parent_id up the timeline) and inserted
+// immediately after that root's item, so the "working" card reads as part of
+// the conversation it belongs to. Runs with a null trigger (assignee /
+// direct-assignment runs) or whose anchor is no longer in the timeline fall to
+// the tail. Within one anchor, runs order by created_at.
+function mergePendingExecutions(
+  items: TimelineItem[],
+  pending: AgentTask[],
+  timeline: TimelineEntry[],
+): TimelineItem[] {
+  if (pending.length === 0) return items;
+
+  const parentOf = new Map<string, string | null>();
+  for (const e of timeline) parentOf.set(e.id, e.parent_id ?? null);
+  const rootOf = (commentId: string): string => {
+    let cur = commentId;
+    const seen = new Set<string>();
+    while (parentOf.get(cur) && !seen.has(cur)) {
+      seen.add(cur);
+      cur = parentOf.get(cur)!;
+    }
+    return cur;
+  };
+
+  const presentIds = new Set(items.map((it) => it.id));
+  const byAnchor = new Map<string, AgentTask[]>();
+  const tail: AgentTask[] = [];
+  for (const task of pending) {
+    const anchor = task.trigger_comment_id
+      ? rootOf(task.trigger_comment_id)
+      : null;
+    if (anchor && presentIds.has(anchor)) {
+      const list = byAnchor.get(anchor) ?? [];
+      list.push(task);
+      byAnchor.set(anchor, list);
+    } else {
+      tail.push(task);
+    }
+  }
+  const byCreatedAt = (a: AgentTask, b: AgentTask) =>
+    new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
+  const toItem = (task: AgentTask): TimelineItem => ({
+    kind: "pending-execution",
+    id: task.id,
+    task,
+  });
+
+  const out: TimelineItem[] = [];
+  for (const item of items) {
+    out.push(item);
+    const anchored = byAnchor.get(item.id);
+    if (anchored) {
+      for (const task of anchored.toSorted(byCreatedAt)) out.push(toItem(task));
+    }
+  }
+  for (const task of tail.toSorted(byCreatedAt)) out.push(toItem(task));
   return out;
 }
 
@@ -858,9 +923,28 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
   // Custom hooks — encapsulate timeline, reactions, subscribers
   const {
     timeline, loading: timelineLoading,
+    pendingExecutions, pendingExecutionNow, taskRuns,
     submitComment, submitReply,
     editComment, deleteComment, toggleResolveComment, toggleReaction: handleToggleReaction,
   } = useIssueTimeline(id, user?.id);
+
+  // Section-level run-history dialog for the inline pending-execution cards.
+  // Hoisted here (not in the card) because a card unmounts the instant its run
+  // resolves into the result comment — a row-owned live dialog would die
+  // mid-watch. We track only the id; `openTask` always reads the freshest task
+  // object from the live task list so a running→completed transition settles in
+  // place. `lastKnownTask` keeps the dialog from slamming shut if the task
+  // transiently leaves the list during a refetch.
+  const [openTaskId, setOpenTaskId] = useState<string | null>(null);
+  const lastKnownTaskRef = useRef<AgentTask | null>(null);
+  const liveOpenTask = openTaskId
+    ? (taskRuns.find((task) => task.id === openTaskId) ?? null)
+    : null;
+  if (openTaskId === null) lastKnownTaskRef.current = null;
+  else if (liveOpenTask) lastKnownTaskRef.current = liveOpenTask;
+  const openTask =
+    liveOpenTask ??
+    (lastKnownTaskRef.current?.id === openTaskId ? lastKnownTaskRef.current : null);
 
   // Resolve / unresolve must always clear the per-session expand entry so
   // re-resolving an already-expanded thread folds it back to the bar (the
@@ -974,8 +1058,13 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
   // resolved thread). Kept in a useMemo so Virtuoso's data identity is stable
   // across unrelated re-renders.
   const items = useMemo<TimelineItem[]>(
-    () => flattenGroups(timelineView.groups, expandedResolved),
-    [timelineView.groups, expandedResolved],
+    () =>
+      mergePendingExecutions(
+        flattenGroups(timelineView.groups, expandedResolved),
+        pendingExecutions,
+        timeline,
+      ),
+    [timelineView.groups, expandedResolved, pendingExecutions, timeline],
   );
 
   // ID of the trailing activity block — the only one expanded by default.
@@ -1647,6 +1736,22 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
         </div>
       );
     }
+    if (item.kind === "pending-execution") {
+      // `data-pending-execution` is the scroll target the header chip jumps to.
+      return (
+        <div
+          className="pb-3"
+          id={`pending-execution-${item.id}`}
+          data-pending-execution
+        >
+          <PendingExecutionCard
+            task={item.task}
+            nowMs={pendingExecutionNow}
+            onOpenRun={setOpenTaskId}
+          />
+        </div>
+      );
+    }
     if (item.kind === "comment") {
       const isResolved = !!item.entry.resolved_at;
       return (
@@ -2118,6 +2223,19 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
                 </div>
               )
             )}
+
+            {/* Screen-reader announcements for inline pending-execution
+                entries appearing / resolving. Lives outside the cards so the
+                "finished" announcement survives the card's unmount-on-resolve. */}
+            <PendingExecutionAnnouncer tasks={pendingExecutions} />
+
+            {/* Section-level run-history dialog for the inline pending cards.
+                Mounted here so it survives a card's active→resolved unmount and
+                a live run keeps streaming into the static transcript in place. */}
+            <RunHistoryDialogHost
+              task={openTask}
+              onClose={() => setOpenTaskId(null)}
+            />
 
             {/* Bottom comment input — no avatar, full width */}
             <div className="mt-4">

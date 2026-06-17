@@ -376,6 +376,16 @@
     "status_failed": "Failed",
     "status_cancelled": "Cancelled"
   },
+  "pending_execution": {
+    "working": "Working",
+    "queued": "Queued",
+    "starting": "Starting",
+    "waiting_local_directory": "Waiting for local directory",
+    "expand_aria": "Expand run for {{name}}",
+    "started_working": "{{name}} started working",
+    "finished": "{{name}} finished",
+    "fallback_name": "Agent"
+  },
   "terminate_dialog": {
     "title": "Stop this task?",
     "body": "The task will be cancelled and cannot be resumed.",

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useCallback, useMemo } from "react";
+import { useEffect, useRef, useCallback, useMemo, useState } from "react";
 import {
   useQuery,
   useQueryClient,
@@ -21,10 +21,16 @@ import type {
   ReactionAddedPayload,
   ReactionRemovedPayload,
 } from "@multica/core/types";
+import type { AgentTask } from "@multica/core/types";
 import {
   issueTimelineOptions,
   issueKeys,
 } from "@multica/core/issues/queries";
+import { api } from "@multica/core/api";
+import {
+  computePendingExecutions,
+  hasPendingExecutionCandidate,
+} from "./pending-executions";
 import {
   useCreateComment,
   useUpdateComment,
@@ -39,6 +45,22 @@ import { toast } from "sonner";
 import { useT } from "../../i18n";
 
 type TLCache = TimelineEntry[];
+
+// Shared 1 Hz clock for the inline pending-execution entries. One interval
+// drives both the resolution hard-timeout and every card's elapsed timer, so
+// the virtualized timeline shares a single ticker instead of one per card
+// (which would thrash Virtuoso). Disabled — and the interval cleared — whenever
+// no run is in flight, so idle issues pay nothing.
+function useNowTicker(enabled: boolean): number {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!enabled) return;
+    setNow(Date.now());
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [enabled]);
+  return now;
+}
 
 function commentToTimelineEntry(c: Comment): TimelineEntry {
   return {
@@ -420,9 +442,55 @@ export function useIssueTimeline(issueId: string, userId?: string) {
     [userId, toggleCommentReaction],
   );
 
+  // --- Pending agent executions (inline "working now" entries) ---
+  // Source: the per-issue task list, already kept WS-live via the global
+  // `task:*` invalidate path (it prefix-matches `issueKeys.tasksAll()`), so no
+  // local subscription is added here. We expose the active runs as a SEPARATE
+  // list — deliberately NOT merged into TimelineEntry[] — so the optimistic-
+  // comment / activity-coalescing pipeline above stays untouched and these
+  // synthetic entries can never be coalesced or treated as comments. The
+  // merge into render order happens one layer up, at the TimelineItem layer in
+  // issue-detail.tsx.
+  const { data: taskRuns = [] } = useQuery({
+    queryKey: issueKeys.tasks(issueId),
+    queryFn: () => api.listTasksByIssue(issueId),
+    staleTime: 30_000,
+    refetchOnWindowFocus: true,
+  });
+
+  const tickerEnabled = useMemo(
+    () => hasPendingExecutionCandidate(taskRuns),
+    [taskRuns],
+  );
+  const pendingExecutionNow = useNowTicker(tickerEnabled);
+
+  // Stabilize the array identity: the ticker re-runs this every second, but the
+  // SET of shown runs rarely changes between ticks. Reuse the previous array
+  // when the rendered runs are identical (same id + status) so issue-detail's
+  // item flattening — and the memoized CommentCards around it — don't churn at
+  // 1 Hz. The cards read the live clock via `pendingExecutionNow` separately.
+  const prevPendingRef = useRef<AgentTask[]>([]);
+  const pendingExecutions = useMemo(() => {
+    const next = computePendingExecutions(
+      taskRuns,
+      timeline,
+      pendingExecutionNow,
+    );
+    const prev = prevPendingRef.current;
+    const same =
+      prev.length === next.length &&
+      prev.every((t, i) => t.id === next[i]!.id && t.status === next[i]!.status);
+    if (same) return prev;
+    prevPendingRef.current = next;
+    return next;
+  }, [taskRuns, timeline, pendingExecutionNow]);
+
   return {
     timeline: optimisticTimeline,
     loading,
+    pendingExecutions,
+    pendingExecutionNow,
+    taskRuns,
     submitComment,
     submitReply,
     editComment,

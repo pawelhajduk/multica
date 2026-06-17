@@ -361,6 +361,16 @@
     "status_failed": "失敗",
     "status_cancelled": "キャンセル済み"
   },
+  "pending_execution": {
+    "working": "作業中",
+    "queued": "待機中",
+    "starting": "開始中",
+    "waiting_local_directory": "ローカルディレクトリを待機中",
+    "expand_aria": "{{name}} の実行を展開",
+    "started_working": "{{name}} が作業を開始しました",
+    "finished": "{{name}} が完了しました",
+    "fallback_name": "エージェント"
+  },
   "terminate_dialog": {
     "title": "このタスクを停止しますか？",
     "body": "タスクはキャンセルされ、再開できません。",
