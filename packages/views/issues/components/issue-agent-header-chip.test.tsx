@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
-import { cleanup, screen } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { cleanup, fireEvent, screen } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AgentTask } from "@multica/core/types";
 import { renderWithI18n } from "../../test/i18n";
 
@@ -32,31 +32,6 @@ vi.mock("@multica/core/workspace/hooks", () => ({
 
 vi.mock("@multica/core/chat/queries", () => ({
   taskMessagesOptions: mockState.taskMessagesOptions,
-}));
-
-vi.mock("@multica/ui/components/ui/popover", async () => {
-  const React = await vi.importActual<typeof import("react")>("react");
-  return {
-    Popover: ({ children }: { children: React.ReactNode }) => (
-      <div data-testid="agent-popover">{children}</div>
-    ),
-    PopoverTrigger: ({
-      render,
-      children,
-    }: {
-      render: React.ReactElement;
-      children: React.ReactNode;
-    }) => React.cloneElement(render, undefined, children),
-    PopoverContent: ({ children }: { children: React.ReactNode }) => (
-      <div data-testid="agent-popover-content">{children}</div>
-    ),
-  };
-});
-
-vi.mock("./execution-log-section", () => ({
-  ActiveTaskRow: ({ task }: { task: AgentTask }) => (
-    <div data-testid="active-task-row">{task.id}</div>
-  ),
 }));
 
 vi.mock("@tanstack/react-query", async () => {
@@ -102,6 +77,12 @@ beforeEach(() => {
   mockState.snapshot = [];
 });
 
+afterEach(() => {
+  document.querySelectorAll("[data-pending-execution]").forEach((el) =>
+    el.remove(),
+  );
+});
+
 describe("IssueAgentHeaderChip", () => {
   it("shows the active agent name without event count or elapsed time", () => {
     mockState.snapshot = [makeTask({})];
@@ -117,15 +98,24 @@ describe("IssueAgentHeaderChip", () => {
     expect(mockState.taskMessagesOptions).not.toHaveBeenCalled();
   });
 
-  it("keeps the header popover card with active task rows", () => {
+  it("is a pointer that scrolls to the inline pending entry, not a second copy of it", () => {
     mockState.snapshot = [makeTask({ id: "task-running" })];
+
+    // The canonical live surface — an inline pending-execution entry — lives in
+    // the timeline. The chip points at it; clicking scrolls it into view.
+    const entry = document.createElement("div");
+    entry.setAttribute("data-pending-execution", "");
+    const scrollIntoView = vi.fn();
+    entry.scrollIntoView = scrollIntoView;
+    document.body.appendChild(entry);
 
     renderWithI18n(<IssueAgentHeaderChip issueId="issue-1" />);
 
-    expect(screen.getByTestId("agent-popover-content")).toBeInTheDocument();
-    expect(screen.getByTestId("active-task-row")).toHaveTextContent(
-      "task-running",
-    );
+    // No popover / duplicated rows — the chip is a single button.
+    expect(screen.queryByTestId("active-task-row")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Walt is working" }));
+    expect(scrollIntoView).toHaveBeenCalledTimes(1);
     expect(mockState.taskMessagesOptions).not.toHaveBeenCalled();
   });
 
@@ -140,8 +130,9 @@ describe("IssueAgentHeaderChip", () => {
     expect(
       screen.getByRole("button", { name: "2 agents working" }),
     ).toBeInTheDocument();
-    expect(screen.getAllByText("2 agents working")).toHaveLength(2);
-    expect(screen.getAllByTestId("active-task-row")).toHaveLength(2);
+    // Single rendering — the label only, no duplicated popover header/rows.
+    expect(screen.getByText("2 agents working")).toBeInTheDocument();
+    expect(screen.queryByTestId("active-task-row")).not.toBeInTheDocument();
     expect(mockState.taskMessagesOptions).not.toHaveBeenCalled();
   });
 

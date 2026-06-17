@@ -54,6 +54,14 @@ vi.mock("@multica/core/issues/queries", () => ({
   }),
   issueKeys: {
     timeline: (id: string) => ["issues", "timeline", id],
+    tasksAll: () => ["issues", "tasks"],
+    tasks: (id: string) => ["issues", "tasks", id],
+  },
+}));
+
+vi.mock("@multica/core/api", () => ({
+  api: {
+    listTasksByIssue: vi.fn(async () => []),
   },
 }));
 

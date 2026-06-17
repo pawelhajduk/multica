@@ -777,6 +777,106 @@ describe("IssueDetail (shared)", () => {
     expect(screen.getByText("I can help with this")).toBeInTheDocument();
   });
 
+  it("renders an active run as an inline pending entry threaded beneath its trigger comment", async () => {
+    mockApiObj.listTimeline.mockResolvedValue([
+      {
+        type: "comment",
+        id: "root-1",
+        actor_type: "member",
+        actor_id: "user-1",
+        content: "Kick this off",
+        parent_id: null,
+        created_at: "2026-01-17T00:00:00Z",
+        updated_at: "2026-01-17T00:00:00Z",
+        comment_type: "comment",
+      },
+    ]);
+    mockApiObj.listTasksByIssue.mockResolvedValue([
+      {
+        id: "task-pending",
+        agent_id: "agent-1",
+        runtime_id: "rt-1",
+        issue_id: "issue-1",
+        status: "running",
+        priority: 0,
+        dispatched_at: null,
+        started_at: "2026-01-17T00:00:05Z",
+        completed_at: null,
+        result: null,
+        error: null,
+        created_at: "2026-01-17T00:00:05Z",
+        trigger_comment_id: "root-1",
+      },
+    ]);
+
+    renderIssueDetail();
+
+    await waitFor(() => {
+      expect(screen.getByText("Working")).toBeInTheDocument();
+    });
+
+    // The pending entry sits AFTER its trigger comment in DOM order.
+    const root = document.getElementById("comment-root-1")!;
+    const pending = document.querySelector("[data-pending-execution]")!;
+    expect(root).toBeTruthy();
+    expect(pending).toBeTruthy();
+    expect(
+      root.compareDocumentPosition(pending) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+
+  it("does not double up: a completed run whose result comment has landed shows no pending entry", async () => {
+    mockApiObj.listTimeline.mockResolvedValue([
+      {
+        type: "comment",
+        id: "root-1",
+        actor_type: "member",
+        actor_id: "user-1",
+        content: "Kick this off",
+        parent_id: null,
+        created_at: "2026-01-17T00:00:00Z",
+        updated_at: "2026-01-17T00:00:00Z",
+        comment_type: "comment",
+      },
+      {
+        type: "comment",
+        id: "result-1",
+        actor_type: "agent",
+        actor_id: "agent-1",
+        content: "All done here",
+        parent_id: "root-1",
+        created_at: "2026-01-17T00:05:00Z",
+        updated_at: "2026-01-17T00:05:00Z",
+        comment_type: "comment",
+      },
+    ]);
+    mockApiObj.listTasksByIssue.mockResolvedValue([
+      {
+        id: "task-done",
+        agent_id: "agent-1",
+        runtime_id: "rt-1",
+        issue_id: "issue-1",
+        status: "completed",
+        priority: 0,
+        dispatched_at: null,
+        started_at: "2026-01-17T00:00:05Z",
+        completed_at: "2026-01-17T00:05:00Z",
+        result: null,
+        error: null,
+        created_at: "2026-01-17T00:00:05Z",
+        trigger_comment_id: "root-1",
+      },
+    ]);
+
+    renderIssueDetail();
+
+    await waitFor(() => {
+      expect(screen.getByText("All done here")).toBeInTheDocument();
+    });
+    expect(document.querySelector("[data-pending-execution]")).toBeNull();
+  });
+
   it("collapses non-trailing activity blocks and expands the last one by default", async () => {
     // Timeline shape:
     //   [activities: status_changed, priority_changed] ← block A (older)
