@@ -13,6 +13,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/multica-ai/multica/server/internal/logger"
+	obsmetrics "github.com/multica-ai/multica/server/internal/metrics"
 	"github.com/multica-ai/multica/server/internal/service"
 	"github.com/multica-ai/multica/server/internal/util"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
@@ -808,6 +809,11 @@ type commentAgentTrigger struct {
 
 type commentTriggerComputeOptions struct {
 	ExcludeTriggerCommentID pgtype.UUID
+	// RecordMetrics gates the MUL-4 duplicate-trigger instrumentation to the
+	// real comment-creation path. The live trigger PREVIEW recomputes this on
+	// every keystroke, so counting suppressions there would wildly inflate the
+	// metric — only the actual enqueue path (triggerTasksForComment) sets this.
+	RecordMetrics bool
 }
 
 func commentAgentTriggerReason(trigger commentAgentTrigger) string {
@@ -1089,7 +1095,7 @@ func (h *Handler) triggerTasksForComment(ctx context.Context, issue db.Issue, co
 	if isNoteComment(comment.Content) {
 		return
 	}
-	triggers := h.computeCommentAgentTriggers(ctx, issue, comment.Content, parentComment, actorType, actorID, commentTriggerComputeOptions{})
+	triggers := h.computeCommentAgentTriggers(ctx, issue, comment.Content, parentComment, actorType, actorID, commentTriggerComputeOptions{RecordMetrics: true})
 	triggers = filterSuppressedCommentAgentTriggers(triggers, suppressAgentIDs)
 	h.enqueueCommentAgentTriggers(ctx, issue, comment.ID, triggers)
 }
@@ -1119,6 +1125,20 @@ func filterSuppressedCommentAgentTriggers(triggers []commentAgentTrigger, suppre
 
 func (h *Handler) enqueueCommentAgentTriggers(ctx context.Context, issue db.Issue, triggerCommentID pgtype.UUID, triggers []commentAgentTrigger) {
 	for _, trigger := range triggers {
+		// MUL-4 running-window signal: this trigger passed the queued/dispatched
+		// dedup, but if a running/parked task already exists for the same
+		// (agent, issue), the new task overlaps an in-flight run — the exact
+		// duplicate the dedup query can't see. Count it (Option A: instrument
+		// only, no behavior change — the task is still enqueued below). Skip the
+		// extra query entirely when there is no metrics sink.
+		if h.Metrics != nil {
+			if running, err := h.Queries.HasRunningTaskForIssueAndAgent(ctx, db.HasRunningTaskForIssueAndAgentParams{
+				IssueID: issue.ID,
+				AgentID: trigger.Agent.ID,
+			}); err == nil && running {
+				h.Metrics.RecordDuplicateTrigger(obsmetrics.DuplicateTriggerRunningWindow)
+			}
+		}
 		switch trigger.Source {
 		case commentTriggerSourceIssueAssignee:
 			if trigger.Squad != nil {
@@ -1219,10 +1239,23 @@ func (h *Handler) computeAssignedSquadLeaderCommentTrigger(ctx context.Context, 
 		return commentAgentTrigger{}, false
 	}
 	hasPending, err := h.hasPendingTaskForIssueAndAgent(ctx, issue.ID, squad.LeaderID, opts)
-	if err != nil || hasPending {
+	if err != nil {
+		return commentAgentTrigger{}, false
+	}
+	if hasPending {
+		h.recordSuppressedTrigger(opts)
 		return commentAgentTrigger{}, false
 	}
 	return commentAgentTrigger{Agent: agent, Source: commentTriggerSourceIssueAssignee, Squad: &squad}, true
+}
+
+// recordSuppressedTrigger bumps the MUL-4 duplicate-trigger counter for a
+// comment trigger that was deduped against an existing queued/dispatched task.
+// Gated on opts.RecordMetrics so the live preview path doesn't inflate it.
+func (h *Handler) recordSuppressedTrigger(opts commentTriggerComputeOptions) {
+	if opts.RecordMetrics {
+		h.Metrics.RecordDuplicateTrigger(obsmetrics.DuplicateTriggerSuppressed)
+	}
 }
 
 func (h *Handler) hasPendingTaskForIssueAndAgent(ctx context.Context, issueID, agentID pgtype.UUID, opts commentTriggerComputeOptions) (bool, error) {
@@ -1424,7 +1457,11 @@ func (h *Handler) computeMentionedAgentCommentTriggers(ctx context.Context, issu
 			}
 			// Dedup: skip if leader already has a pending task for this issue.
 			hasPending, err := h.hasPendingTaskForIssueAndAgent(ctx, issue.ID, leaderID, opts)
-			if err != nil || hasPending {
+			if err != nil {
+				continue
+			}
+			if hasPending {
+				h.recordSuppressedTrigger(opts)
 				continue
 			}
 			add(commentAgentTrigger{Agent: agent, Source: commentTriggerSourceMentionSquadLeader, Squad: &squad})
@@ -1454,7 +1491,11 @@ func (h *Handler) computeMentionedAgentCommentTriggers(ctx context.Context, issu
 		}
 		// Dedup: skip if this agent already has a pending task for this issue.
 		hasPending, err := h.hasPendingTaskForIssueAndAgent(ctx, issue.ID, agentUUID, opts)
-		if err != nil || hasPending {
+		if err != nil {
+			continue
+		}
+		if hasPending {
+			h.recordSuppressedTrigger(opts)
 			continue
 		}
 		add(commentAgentTrigger{Agent: agent, Source: commentTriggerSourceMentionAgent})

@@ -144,6 +144,7 @@ func TestBusinessMetricsRegistryExposesAllFamilies(t *testing.T) {
 	m.ObserveGithubPRMergeSeconds(120)
 	m.RecordCloudRuntimeRequest("provision", "ok", 0.5)
 	m.RecordDaemonWSMessageReceived("heartbeat")
+	m.RecordDuplicateTrigger(DuplicateTriggerSuppressed)
 
 	families, err := registry.Gather()
 	if err != nil {

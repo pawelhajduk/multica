@@ -1695,6 +1695,30 @@ func (q *Queries) HasPendingTaskForIssueAndAgentExcludingTriggerComment(ctx cont
 	return has_pending, err
 }
 
+const hasRunningTaskForIssueAndAgent = `-- name: HasRunningTaskForIssueAndAgent :one
+SELECT count(*) > 0 AS has_running FROM agent_task_queue
+WHERE issue_id = $1 AND agent_id = $2 AND status IN ('running', 'waiting_local_directory')
+`
+
+type HasRunningTaskForIssueAndAgentParams struct {
+	IssueID pgtype.UUID `json:"issue_id"`
+	AgentID pgtype.UUID `json:"agent_id"`
+}
+
+// Returns true if a specific agent already has a task actively in flight
+// (running, or daemon-parked on a busy local_directory path lock) for the
+// given issue. The @mention dedup (HasPendingTaskForIssueAndAgent) only
+// matches queued/dispatched, so a re-mention WHILE the agent is running slips
+// through and creates a second task — this query lets the enqueue path observe
+// that "running-window duplicate" for the MUL-4 success metric. Instrumentation
+// only; it does not change enqueue behavior.
+func (q *Queries) HasRunningTaskForIssueAndAgent(ctx context.Context, arg HasRunningTaskForIssueAndAgentParams) (bool, error) {
+	row := q.db.QueryRow(ctx, hasRunningTaskForIssueAndAgent, arg.IssueID, arg.AgentID)
+	var has_running bool
+	err := row.Scan(&has_running)
+	return has_running, err
+}
+
 const linkTaskToIssue = `-- name: LinkTaskToIssue :exec
 UPDATE agent_task_queue
 SET issue_id = $2

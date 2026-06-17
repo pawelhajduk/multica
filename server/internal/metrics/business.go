@@ -34,6 +34,14 @@ type BusinessMetrics struct {
 	taskQueuedExpired *prometheus.CounterVec
 	taskLeaseExpired  *prometheus.CounterVec
 
+	// MUL-4 success metric: re-triggers that didn't produce useful new work
+	// because the agent was already on it. signal="suppressed" → a trigger was
+	// deduped against an existing queued/dispatched task; signal="running_window"
+	// → a trigger proceeded while a running/parked task already existed (the
+	// dedup query ignores those statuses). Pure instrumentation, no behavior
+	// change (Option A).
+	duplicateTrigger *prometheus.CounterVec
+
 	activeMu    sync.Mutex
 	activeTasks map[string]activeTaskLabels
 
@@ -145,6 +153,12 @@ func NewBusinessMetrics() *BusinessMetrics {
 			Name:      "lease_expired_total",
 			Help:      "Total dispatched or running task leases expired by the scheduler.",
 		}, metricLabels("multica_task_lease_expired_total")),
+		duplicateTrigger: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Namespace: "multica",
+			Subsystem: "agent",
+			Name:      "duplicate_trigger_total",
+			Help:      "Total agent triggers observed to overlap an already-active run for the same issue (MUL-4 success metric). signal=suppressed|running_window.",
+		}, metricLabels("multica_agent_duplicate_trigger_total")),
 		activeTasks: map[string]activeTaskLabels{},
 		events:      newBusinessEventMetrics(),
 	}
@@ -170,7 +184,32 @@ func (m *BusinessMetrics) Collectors() []prometheus.Collector {
 		m.llmRequests,
 		m.taskQueuedExpired,
 		m.taskLeaseExpired,
+		m.duplicateTrigger,
 	}, m.events.collectors()...)
+}
+
+// DuplicateTriggerSignal enumerates the low-cardinality `signal` label values
+// for RecordDuplicateTrigger. Kept as typed constants so call sites can't drift
+// the label set.
+type DuplicateTriggerSignal string
+
+const (
+	// DuplicateTriggerSuppressed: a comment trigger was deduped against an
+	// existing queued/dispatched task for the same (agent, issue).
+	DuplicateTriggerSuppressed DuplicateTriggerSignal = "suppressed"
+	// DuplicateTriggerRunningWindow: a comment trigger proceeded to enqueue
+	// while a running/parked task already existed for the same (agent, issue) —
+	// the dedup query ignores those statuses, so this is the unsuppressed leak.
+	DuplicateTriggerRunningWindow DuplicateTriggerSignal = "running_window"
+)
+
+// RecordDuplicateTrigger increments the MUL-4 duplicate-trigger counter for the
+// given signal. Nil-safe (PostHog-only / test handlers pass a nil collector).
+func (m *BusinessMetrics) RecordDuplicateTrigger(signal DuplicateTriggerSignal) {
+	if m == nil {
+		return
+	}
+	m.duplicateTrigger.WithLabelValues(string(signal)).Inc()
 }
 
 func (m *BusinessMetrics) RecordTaskEnqueued(source, runtimeMode string) {
