@@ -60,7 +60,6 @@ const PAST_STATUS_RANK: Record<string, number> = {
 export function ExecutionLogSection({ issueId }: ExecutionLogSectionProps) {
   const { t } = useT("issues");
   const [open, setOpen] = useState(true);
-  const [showPast, setShowPast] = useState(false);
   // Section-level run-history dialog. Hoisted out of the rows so a LIVE run's
   // view survives the active→past re-bucket (and the collapse of `showPast`)
   // that unmounts its row the instant it completes. We only track the id; the
@@ -78,21 +77,6 @@ export function ExecutionLogSection({ issueId }: ExecutionLogSectionProps) {
     staleTime: 30_000,
     refetchOnWindowFocus: true,
   });
-
-  const activeTasks = useMemo(
-    () =>
-      tasks.filter(
-        (t) =>
-          t.status === "queued" ||
-          t.status === "dispatched" ||
-          // Daemon-parked task on a busy local_directory — still active
-          // (waiting on a path lock), not terminal. Surfacing it here is
-          // what tells the user the agent is alive and will resume.
-          t.status === "waiting_local_directory" ||
-          t.status === "running",
-      ),
-    [tasks],
-  );
 
   const pastTasks = useMemo(() => {
     const past = tasks.filter(
@@ -136,7 +120,11 @@ export function ExecutionLogSection({ issueId }: ExecutionLogSectionProps) {
     liveTask ??
     (lastKnownTask.current?.id === openTaskId ? lastKnownTask.current : null);
 
-  if (activeTasks.length === 0 && pastTasks.length === 0) return null;
+  // History-only surface. The live "working now" signal is owned by the inline
+  // pending-execution entries in the comments timeline (and the header chip
+  // that points at them); this section is the run history — terminal runs only
+  // — so the two surfaces can never contradict during a resolution race.
+  if (pastTasks.length === 0) return null;
 
   return (
     <div>
@@ -153,57 +141,17 @@ export function ExecutionLogSection({ issueId }: ExecutionLogSectionProps) {
             open ? "rotate-90" : ""
           }`}
         />
-        {activeTasks.length > 0 && (
-          <span className="ml-auto inline-flex items-center gap-1 text-info">
-            <span className="h-1.5 w-1.5 rounded-full bg-info animate-pulse" />
-            <span className="font-mono tabular-nums">{activeTasks.length}</span>
-          </span>
-        )}
       </button>
       {open && (
         <div className="space-y-0.5 pl-2">
-          {activeTasks.map((task) => (
-            <ActiveTaskRow
+          {pastTasks.map((task) => (
+            <PastRow
               key={task.id}
               task={task}
               issueId={issueId}
               onOpenRun={setOpenTaskId}
             />
           ))}
-
-          {pastTasks.length > 0 && (
-            <>
-              {activeTasks.length > 0 && (
-                <div className="my-1.5 border-t border-border/60" />
-              )}
-              <button
-                type="button"
-                onClick={() => setShowPast(!showPast)}
-                className="flex w-full items-center gap-1 rounded px-1 py-1 text-xs text-muted-foreground transition-colors hover:bg-accent/40 hover:text-foreground"
-              >
-                <ChevronRight
-                  className={`!size-3 shrink-0 stroke-[2.5] transition-transform ${
-                    showPast ? "rotate-90" : ""
-                  }`}
-                />
-                {showPast
-                  ? t(($) => $.execution_log.hide_past, { count: pastTasks.length })
-                  : t(($) => $.execution_log.show_past, { count: pastTasks.length })}
-              </button>
-              {showPast && (
-                <div className="mt-0.5 space-y-0.5">
-                  {pastTasks.map((task) => (
-                    <PastRow
-                      key={task.id}
-                      task={task}
-                      issueId={issueId}
-                      onOpenRun={setOpenTaskId}
-                    />
-                  ))}
-                </div>
-              )}
-            </>
-          )}
         </div>
       )}
 

@@ -1,19 +1,13 @@
 "use client";
 
-import { memo, useMemo } from "react";
+import { memo, useCallback, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@multica/ui/components/ui/popover";
 import { useWorkspaceId } from "@multica/core/hooks";
 import { useActorName } from "@multica/core/workspace/hooks";
 import { cn } from "@multica/ui/lib/utils";
 import { agentTaskSnapshotOptions } from "@multica/core/agents";
 import type { AgentTask } from "@multica/core/types";
 import { AgentAvatarStack } from "../../agents/components/agent-avatar-stack";
-import { ActiveTaskRow } from "./execution-log-section";
 import { useT } from "../../i18n";
 
 // Per-issue "is an agent working on this right now?" chip for the issue
@@ -68,16 +62,15 @@ export const IssueAgentHeaderChip = memo(function IssueAgentHeaderChip({
   // No active work → render nothing.
   if (running.length === 0 && queued.length === 0) return null;
 
-  return <ActiveChip issueId={issueId} running={running} queued={queued} />;
+  return <ActiveChip running={running} queued={queued} />;
 });
 
 interface ActiveChipProps {
-  issueId: string;
   running: AgentTask[];
   queued: AgentTask[];
 }
 
-function ActiveChip({ issueId, running, queued }: ActiveChipProps) {
+function ActiveChip({ running, queued }: ActiveChipProps) {
   const { t } = useT("issues");
   const { getActorName } = useActorName();
 
@@ -85,6 +78,16 @@ function ActiveChip({ issueId, running, queued }: ActiveChipProps) {
   const agentIds = [...new Set(activeTasks.map((task) => task.agent_id))];
   const anyRunning = running.length > 0;
   const isSingle = agentIds.length === 1;
+
+  // The chip is a POINTER to the canonical live surface — the inline
+  // pending-execution entries in the comments timeline — not a second copy of
+  // it. Clicking scrolls the first such entry into view. Scoped to the issue
+  // detail's own scroll root so it doesn't move ancestor scrollers, and a
+  // user-initiated scroll (not a cold mount) so smooth centering is safe.
+  const scrollToInlineEntry = useCallback(() => {
+    const entry = document.querySelector<HTMLElement>("[data-pending-execution]");
+    entry?.scrollIntoView({ behavior: "smooth", block: "center" });
+  }, []);
   // Copy must follow the actual state: "is working" only when something is
   // truly running. With nothing running (queued / dispatched / parked on a
   // path lock) the chip reads "is queued" so a not-yet-started agent isn't
@@ -105,53 +108,31 @@ function ActiveChip({ issueId, running, queued }: ActiveChipProps) {
 
   return (
     <div className="flex items-center gap-1">
-      <Popover>
-        <PopoverTrigger
-          render={
-            <button
-              type="button"
-              aria-label={label}
-              // While an agent is actively running, the chip wears the
-              // brand border beam — a highlight sweeping around its rounded
-              // edge — so a triggered run is unmistakably "alive" in the
-              // header. Queued-only state stays calm (no beam) to reserve the
-              // motion for work that is genuinely in flight.
-              className={cn(
-                "flex h-7 max-w-[11rem] items-center gap-1.5 rounded-md px-1.5 text-muted-foreground outline-none transition-colors hover:bg-accent/60 focus-visible:ring-2 focus-visible:ring-ring",
-                anyRunning && "border-beam bg-brand/5",
-              )}
-            />
-          }
+      <button
+        type="button"
+        aria-label={label}
+        onClick={scrollToInlineEntry}
+        // While an agent is actively running, the chip wears the brand border
+        // beam — a highlight sweeping around its rounded edge — so a triggered
+        // run is unmistakably "alive" in the header. Queued-only state stays
+        // calm (no beam) to reserve the motion for work genuinely in flight.
+        className={cn(
+          "flex h-7 max-w-[11rem] items-center gap-1.5 rounded-md px-1.5 text-muted-foreground outline-none transition-colors hover:bg-accent/60 focus-visible:ring-2 focus-visible:ring-ring",
+          anyRunning && "border-beam bg-brand/5",
+        )}
+      >
+        <AgentAvatarStack
+          agentIds={agentIds}
+          size={18}
+          max={3}
+          opacity={anyRunning ? "full" : "half"}
+        />
+        <span
+          className={`min-w-0 truncate text-xs ${anyRunning ? "text-info" : "text-muted-foreground"}`}
         >
-          <AgentAvatarStack
-            agentIds={agentIds}
-            size={18}
-            max={3}
-            opacity={anyRunning ? "full" : "half"}
-          />
-          <span
-            className={`min-w-0 truncate text-xs ${anyRunning ? "text-info" : "text-muted-foreground"}`}
-          >
-            {label}
-          </span>
-        </PopoverTrigger>
-        <PopoverContent align="end" keepMounted className="w-80">
-          <div className="text-xs font-medium text-muted-foreground">
-            {t(
-              ($) =>
-                anyRunning
-                  ? $.agent_activity.hover_header
-                  : $.agent_activity.hover_header_queued,
-              { count: agentIds.length },
-            )}
-          </div>
-          <div className="flex flex-col gap-0.5">
-            {activeTasks.map((task) => (
-              <ActiveTaskRow key={task.id} task={task} issueId={issueId} />
-            ))}
-          </div>
-        </PopoverContent>
-      </Popover>
+          {label}
+        </span>
+      </button>
       {/* Separator from the action buttons — the chip is a status segment,
           not another button, so a hairline keeps the two groups legible. */}
       <span className="h-4 w-px bg-border" aria-hidden="true" />
