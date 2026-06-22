@@ -1,4 +1,4 @@
-import { githubUrl } from "../components/shared";
+import { githubUrl, discordUrl } from "../components/shared";
 import type { LandingDict } from "./types";
 
 export function createZhDict(allowSignup: boolean): LandingDict {
@@ -244,6 +244,7 @@ export function createZhDict(allowSignup: boolean): LandingDict {
           { label: "\u6587\u6863", href: "/docs/zh" },
           { label: "API", href: githubUrl },
           { label: "X (Twitter)", href: "https://x.com/MulticaAI" },
+          { label: "Discord", href: discordUrl },
         ],
       },
       company: {
@@ -292,6 +293,77 @@ export function createZhDict(allowSignup: boolean): LandingDict {
       fixes: "问题修复",
     },
     entries: [
+      {
+        version: "0.3.27",
+        date: "2026-06-22",
+        title: "Lark 话题回复和团队协作流程优化",
+        changes: [],
+        features: [
+          "Lark 里的话题消息现在会回到原话题中，团队讨论更容易保持上下文",
+          "小队负责人现在可以在成员列表里看到成员技能，分配任务时更容易选对人",
+          "Discord 入口已加入官网页脚、帮助菜单、README，以及可关闭的应用侧边栏卡片",
+        ],
+        improvements: [
+          "Issue 顶部的智能体活动状态现在悬停即可展开，更方便快速查看当前进展",
+          "桌面侧边栏和固定导航更顺滑、更清爽，减少不必要的视觉干扰",
+          "聊天回复、任务分配补读和贡献者指引更克制，智能体工作更容易留在正确位置",
+          "远程命令行初始化和自定义运行时删除现在会给出更清楚的操作提示",
+        ],
+        fixes: [
+          "父 Issue 仍在待办池时，子任务完成不会意外唤起后续自动处理",
+          "删除项目现在需要所有者或管理员权限；私有 GitHub 仓库的技能导入在配置有效令牌后可以正常完成",
+          "登录验证码输入框会自动聚焦，进入详情页时侧边栏也不会再意外播放动画",
+          "Codex 权限处理和守护进程慢任务诊断更可靠，排查问题时信息更完整",
+        ],
+      },
+      {
+        version: "0.3.25",
+        date: "2026-06-18",
+        title: "让技能、自动任务和聊天中的智能体工作更可靠",
+        changes: [],
+        features: [
+          "开发者机器上的本地技能库现在可以被自动识别，智能体运行时更容易复用团队能力",
+          "自动任务可以配置默认订阅人，新建 Issue 时更容易把相关队友带入确认",
+          "聊天附件会绑定到当前工作空间，发送消息时也不会阻塞后续对话",
+          "智能体评论发送失败后，可以直接在 Issue 时间线里重试",
+        ],
+        improvements: [
+          "同名模型来自不同服务商时，使用量统计会更准确",
+          "历史 Codex 使用量可以补齐，用量记录更完整",
+          "运行时存储统计会覆盖更多工作目录，空间占用更清楚",
+          "后台任务指引和发版检查更严格，可以更早发现高风险改动",
+        ],
+        fixes: [
+          "聊天和评论里的 Issue 提及标签会适配容器宽度，不再和周围文字重叠",
+          "工作空间链接会更稳定地使用正确的部署域名",
+          "自动任务运行结束后，会清理对应的运行目录",
+          "桌面端可以正确处理基于提交版本的版本号",
+          "Tencent CodeBuddy 会显示正确的服务商图标",
+          "守护进程领取任务的响应更小，传输更快",
+        ],
+      },
+      {
+        version: "0.3.24",
+        date: "2026-06-17",
+        title: "自定义运行时",
+        changes: [],
+        features: [
+          "团队可以创建自定义运行时，让智能体按环境使用合适的本地工具和模型",
+          "命令行创建和更新智能体时可以选择思考强度",
+        ],
+        improvements: [
+          "运行时配置会更快同步到应用，并优先匹配当前环境",
+          "客户端错误和卡顿反馈会合并重复信息",
+          "Issue 评论触发预览文案更清楚",
+        ],
+        fixes: [
+          "Office 365 邮件的备用发送方式更稳定",
+          "GitHub 安装上下文和 CI 等待状态显示更可靠",
+          "Codex 服务退出时会快速失败",
+          "自修复运行时可再次删除，切换运行时时会清理不兼容模型",
+          "未知 Issue 图标和普通文件名链接识别更安全",
+        ],
+      },
       {
         version: "0.3.23",
         date: "2026-06-16",
